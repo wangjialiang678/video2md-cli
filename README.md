@@ -28,6 +28,26 @@ If you know the speaker names, pass explicit mappings such as `--speaker 1=Alice
 
 Files longer than 2 hours are split into 2-hour chunks, then merged back into one Markdown file with adjusted timestamps.
 
+## Install With An AI Agent
+
+If you do not want to install manually, send this repository to your AI agent and ask it to handle setup:
+
+```text
+Please install https://github.com/wangjialiang678/video2md-cli on this machine.
+
+After installation, configure the private credentials in the local env file:
+
+~/.video2md-cli.env
+
+Use the DashScope and OSS values that I provide through a private channel. Do not commit credentials to GitHub, write them into README files, paste them into public chats, or include them in screenshots.
+
+When transcribing files, use:
+
+~/.video2md-cli/bin/video2md --out-dir ./out --speaker-count 2 /path/to/video.mp4
+
+Do not pass --speaker by default. Let the output use "说话人1", "说话人2", etc. Only add --speaker mappings when the real speaker names are known.
+```
+
 ## Install On Mac
 
 Clone the repository:
