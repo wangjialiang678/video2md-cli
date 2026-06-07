@@ -1,0 +1,16 @@
+.DS_Store
+*.env
+.env
+dist/
+fixtures/*.mp4
+fixtures/*.wav
+docs/architecture/
+docs/video2md-solution.html
+docs/README.md
+docs/dev-log.md
+docs/plans/
+docs/product/
+docs/research/
+docs/test-plan.md
+*.log
+tmp/
