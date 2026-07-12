@@ -4,8 +4,14 @@ set -euo pipefail
 REPO="${VIDEO2MD_GITHUB_REPO:-wangjialiang678/video2md-cli}"
 INSTALL_DIR="${VIDEO2MD_INSTALL_DIR:-$HOME/.video2md-cli}"
 BIN_DIR="$INSTALL_DIR/bin"
-SKILL_DEST="${CODEX_HOME:-$HOME/.codex}/skills/video2md-cli"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# skill 装到所有已存在的 AI 环境：Claude Code / Codex / WorkBuddy
+SKILL_DESTS=(
+  "$HOME/.claude/skills"
+  "${CODEX_HOME:-$HOME/.codex}/skills"
+  "$HOME/.agents/skills"
+)
 
 arch="$(uname -m)"
 case "$arch" in
@@ -56,11 +62,17 @@ elif ! download_release; then
 fi
 install -m 0755 "$ROOT_DIR/scripts/video2md" "$BIN_DIR/video2md"
 
-if [[ -d "$ROOT_DIR/skills/video2md-cli" ]]; then
-  rm -rf "$SKILL_DEST"
-  mkdir -p "$(dirname "$SKILL_DEST")"
-  cp -R "$ROOT_DIR/skills/video2md-cli" "$SKILL_DEST"
-  chmod +x "$SKILL_DEST/scripts/video2md.sh"
+if [[ -d "$ROOT_DIR/skills/video2md" ]]; then
+  for skills_dir in "${SKILL_DESTS[@]}"; do
+    # 只装到已经存在的 AI 环境，不给用户凭空造目录
+    [[ -d "$skills_dir" ]] || continue
+    dest="$skills_dir/video2md"
+    rm -rf "$dest"
+    cp -R "$ROOT_DIR/skills/video2md" "$dest"
+    chmod +x "$dest/scripts/video2md.sh"
+    [[ -d "$dest/bin" ]] && chmod +x "$dest/bin/"* 2>/dev/null || true
+    echo "Installed skill to $dest"
+  done
 fi
 
 if [[ ! -f "$HOME/.video2md-cli.env" ]]; then
@@ -74,6 +86,5 @@ fi
 
 echo "Installed mp4-md to $BIN_DIR/mp4-md"
 echo "Installed wrapper to $BIN_DIR/video2md"
-echo "Installed Codex skill to $SKILL_DEST"
-echo "Configure secrets in $HOME/.video2md-cli.env"
-echo "Restart Codex to pick up the skill."
+echo "Set DASHSCOPE_API_KEY in $HOME/.video2md-cli.env  (that is the only required credential)"
+echo "Restart your AI tool to pick up the skill."

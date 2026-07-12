@@ -31,11 +31,16 @@ type Processor struct {
 	Workers      int
 	SkipExisting bool
 	SpeakerNames map[int]string
+	PlainText    bool
+	// Timestamps 控制额外产出的时间戳版文件；为空或 none 则不产出。
+	Timestamps markdown.Timestamps
 }
 
 type Output struct {
 	InputPath  string
 	OutputPath string
+	// TimestampedPath 是带时间戳的伴生文件，未启用时为空。
+	TimestampedPath string
 }
 
 func (p Processor) Process(ctx context.Context, inputs []string) ([]Output, error) {
@@ -187,10 +192,30 @@ func (p Processor) processOne(ctx context.Context, inputPath string) (Output, er
 	}
 	if err := os.WriteFile(outputPath, []byte(markdown.Render(inputPath, transcript, markdown.Options{
 		SpeakerNames: p.SpeakerNames,
+		PlainText:    p.PlainText,
 	})), 0o644); err != nil {
 		return Output{}, err
 	}
-	return Output{InputPath: inputPath, OutputPath: outputPath}, nil
+
+	// 正文永远是干净文本；时间戳版另存一份，方便按需定位原视频。
+	timestampedPath := ""
+	if p.Timestamps != markdown.TimestampsNone && p.Timestamps != "" {
+		timestampedPath = timestampedOutputPath(outputPath)
+		if err := os.WriteFile(timestampedPath, []byte(markdown.Render(inputPath, transcript, markdown.Options{
+			SpeakerNames: p.SpeakerNames,
+			PlainText:    p.PlainText,
+			Timestamps:   p.Timestamps,
+		})), 0o644); err != nil {
+			return Output{}, err
+		}
+	}
+	return Output{InputPath: inputPath, OutputPath: outputPath, TimestampedPath: timestampedPath}, nil
+}
+
+// timestampedOutputPath 把 out/a.md 变成 out/a.timestamped.md。
+func timestampedOutputPath(outputPath string) string {
+	ext := filepath.Ext(outputPath)
+	return strings.TrimSuffix(outputPath, ext) + ".timestamped" + ext
 }
 
 func (p Processor) outputPath(inputPath string) string {

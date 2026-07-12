@@ -10,6 +10,7 @@ import (
 
 	"mp4-md/internal/app"
 	"mp4-md/internal/asrclient"
+	"mp4-md/internal/markdown"
 	"mp4-md/internal/media"
 	"mp4-md/internal/storage"
 )
@@ -40,6 +41,8 @@ func runTranscribe(args []string) error {
 	var vocabularyID string
 	var speakerCount int
 	var skipExisting bool
+	var plain bool
+	var timestamps string
 	var ossAccessKeyID string
 	var ossAccessKeySecret string
 	var ossBucket string
@@ -56,6 +59,8 @@ func runTranscribe(args []string) error {
 	fs.IntVar(&speakerCount, "speaker-count", 2, "expected speaker count for diarization")
 	fs.Var(&speakerNames, "speaker", "optional speaker name mapping, e.g. --speaker 1=Name --speaker 2=Name")
 	fs.BoolVar(&skipExisting, "skip-existing", false, "skip files whose markdown output already exists")
+	fs.BoolVar(&plain, "plain", false, "output plain text paragraphs without speaker labels")
+	fs.StringVar(&timestamps, "timestamps", "sentence", "extra timestamped file: none | sentence | word")
 	fs.StringVar(&ossAccessKeyID, "oss-access-key-id", "", "OSS access key id, defaults to OSS_ACCESS_KEY_ID or ALICLOUD_ACCESS_KEY_ID")
 	fs.StringVar(&ossAccessKeySecret, "oss-access-key-secret", "", "OSS access key secret, defaults to OSS_ACCESS_KEY_SECRET or ALICLOUD_ACCESS_KEY_SECRET")
 	fs.StringVar(&ossBucket, "oss-bucket", "", "OSS bucket, defaults to OSS_BUCKET")
@@ -78,6 +83,11 @@ func runTranscribe(args []string) error {
 		return fmt.Errorf("missing api key: use --api-key or DASHSCOPE_API_KEY")
 	}
 
+	timestampMode, err := parseTimestamps(timestamps)
+	if err != nil {
+		return err
+	}
+
 	ossConfig := storage.OSSConfigFromEnv()
 	if ossAccessKeyID != "" {
 		ossConfig.AccessKeyID = ossAccessKeyID
@@ -94,7 +104,7 @@ func runTranscribe(args []string) error {
 	if ossPrefix != "" {
 		ossConfig.ObjectKeyPrefix = ossPrefix
 	}
-	uploader, err := storage.NewAliyunOSSUploader(ossConfig)
+	uploader, err := newUploader(ossConfig, apiKey)
 	if err != nil {
 		return err
 	}
@@ -112,13 +122,41 @@ func runTranscribe(args []string) error {
 		Workers:      workers,
 		SkipExisting: skipExisting,
 		SpeakerNames: speakerNames.Map(),
+		PlainText:    plain,
+		Timestamps:   timestampMode,
 	}
 
 	results, err := processor.Process(context.Background(), inputs)
 	for _, item := range results {
 		fmt.Printf("%s -> %s\n", item.InputPath, item.OutputPath)
+		if item.TimestampedPath != "" {
+			fmt.Printf("%s -> %s\n", item.InputPath, item.TimestampedPath)
+		}
 	}
 	return err
+}
+
+func parseTimestamps(raw string) (markdown.Timestamps, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "none", "off":
+		return markdown.TimestampsNone, nil
+	case "sentence":
+		return markdown.TimestampsSentence, nil
+	case "word":
+		return markdown.TimestampsWord, nil
+	default:
+		return "", fmt.Errorf("--timestamps must be one of: none, sentence, word (got %q)", raw)
+	}
+}
+
+// newUploader 选择音频的中转存储：
+// 配了完整的 OSS_* 就用自建 OSS（老用户/大批量场景），否则默认用 DashScope 自带的
+// 临时文件空间——后者只需要 DASHSCOPE_API_KEY，同事开箱即用。
+func newUploader(ossConfig storage.OSSConfig, apiKey string) (asrclient.ObjectUploader, error) {
+	if ossConfig.IsConfigured() {
+		return storage.NewAliyunOSSUploader(ossConfig)
+	}
+	return storage.NewDashScopeUploader(apiKey, "")
 }
 
 func usageError() error {

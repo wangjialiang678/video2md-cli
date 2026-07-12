@@ -14,3 +14,6 @@ docs/research/
 docs/test-plan.md
 *.log
 tmp/
+# skill 分发包里的二进制在打包时构建（scripts/pack-skill.sh），不入库
+skills/video2md/bin/
+.claude/

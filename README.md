@@ -1,214 +1,154 @@
 # video2md-cli
 
-`video2md-cli` turns local audio or video files into speaker-separated Markdown.
+把本地视频/音频转成带说话人区分的 Markdown 文字稿。转码在本地跑，识别走阿里云百炼 Fun-ASR。
 
-It is designed for two use cases:
+**只需要一个 `DASHSCOPE_API_KEY`。不需要 OSS，不需要自建 bucket，不需要阿里云 AccessKey。**
 
-- People can run the `mp4-md` CLI directly.
-- AI agents can install the bundled Codex skill and call the CLI with the right defaults.
+**默认一次出两个文件**，正文保持干净，时间戳单独放一份：
 
-Default output uses Chinese speaker labels:
+`meeting.md` —— 正文，带说话人、无时间戳：
 
 ```markdown
-**说话人1**: ...
+# 团队会议
+来源：`meeting.mp4`
 
-**说话人2**: ...
+**说话人1**: 你好，我想问一下这个工具怎么用？
+
+**说话人2**: 很简单，把视频拖进来就行。
 ```
 
-If you know the speaker names, pass explicit mappings such as `--speaker 1=Alice --speaker 2=Bob`.
+`meeting.timestamped.md` —— 句级时间戳，用来回溯原视频位置：
 
-## What It Does
-
-1. Uses `ffmpeg` to extract or normalize audio to compressed `16k / mono / aac m4a`.
-2. Uploads the temporary audio to Aliyun OSS.
-3. Calls DashScope Fun-ASR recorded-file transcription.
-4. Enables speaker diarization.
-5. Writes speaker-separated Markdown.
-6. Deletes temporary OSS objects after transcription.
-
-Files longer than 2 hours are split into 2-hour chunks, then merged back into one Markdown file with adjusted timestamps.
-
-## Install With An AI Agent
-
-If you do not want to install manually, send this repository to your AI agent and ask it to handle setup:
-
-```text
-Please install https://github.com/wangjialiang678/video2md-cli on this machine.
-
-After installation, configure the private credentials in the local env file:
-
-~/.video2md-cli.env
-
-Use the DashScope and OSS values that I provide through a private channel. Do not commit credentials to GitHub, write them into README files, paste them into public chats, or include them in screenshots.
-
-When transcribing files, use:
-
-~/.video2md-cli/bin/video2md --out-dir ./out --speaker-count 2 /path/to/video.mp4
-
-Do not pass --speaker by default. Let the output use "说话人1", "说话人2", etc. Only add --speaker mappings when the real speaker names are known.
+```markdown
+**说话人1** `[00:00:00.160 → 00:00:04.480]`: 你好，我想问一下这个工具怎么用？
 ```
 
-## Install On Mac
+`--timestamps word` 则在时间戳版里为每句附一张逐词表（含置信度，可定位识别不准的词）；
+`--timestamps none` 只出正文。`--plain` 去掉说话人前缀。知道真名时用 `--speaker 1=张三 --speaker 2=李四`。
 
-Clone the repository:
+---
+
+## 快速开始
+
+装好 CLI 和 skill（见下面「从源码安装」），然后配好这两样：
+
+```bash
+brew install ffmpeg                                       # 本地转码要用
+echo 'export DASHSCOPE_API_KEY=sk-你的key' > ~/.video2md-cli.env
+chmod 600 ~/.video2md-cli.env
+```
+
+`DASHSCOPE_API_KEY` 去 [百炼控制台](https://bailian.console.aliyun.com/) 右上角
+API-KEY 申请，这是唯一需要的凭证。
+
+装好后直接跟 AI 说「把这个视频转成文字」即可，不用记命令。
+
+> 超脑团队成员：内部 SkillHub 上已有打包好的 `video2md` skill（含预编译二进制，
+> 免 clone 免构建），安装命令找 Michael 要。
+
+---
+
+## 工作原理
+
+1. `ffmpeg` 在**本地**把音轨抽出来，压成 16k 单声道 m4a。
+2. 压缩后的音频上传到 DashScope 自带的临时文件空间，换取一个 `oss://` 临时地址。
+3. 调用 DashScope Fun-ASR 录音文件识别，开启说话人分离。
+4. 渲染成 Markdown。
+
+临时音频 48 小时后由 DashScope 侧自动过期，无需清理。超过 2 小时的文件自动切段识别再合并。
+
+> **为什么不需要 OSS？** Fun-ASR 的录音文件识别接口只接受公网可访问的 URL，早期版本因此
+> 要求用户自建 OSS 来临时托管音频。实际上 DashScope 提供了自己的临时文件空间
+> （[官方文档](https://help.aliyun.com/zh/model-studio/get-temporary-file-url)），
+> 配合请求头 `X-DashScope-OssResourceResolve: enable` 就能直接用，凭证从 5 个降到 1 个。
+> 自建 OSS 仍然支持（见下），但已不是必需。
+
+## 从源码安装（能访问 GitHub 的话）
 
 ```bash
 git clone https://github.com/wangjialiang678/video2md-cli.git
 cd video2md-cli
+./scripts/install-mac.sh          # Windows: powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1
 ```
 
-Install the CLI and Codex skill:
+安装器会写入：
+
+- CLI 二进制：`~/.video2md-cli/bin/mp4-md`
+- 读 env 的包装脚本：`~/.video2md-cli/bin/video2md`
+- skill：装到所有已存在的 AI 环境（`~/.claude/skills`、`~/.codex/skills`、`~/.agents/skills`）
+- 私有 env 文件：`~/.video2md-cli.env`（权限 0600，永不入库）
+
+## 命令行用法
+
+选项要放在输入路径前面：
 
 ```bash
-./scripts/install-mac.sh
+~/.video2md-cli/bin/video2md --out-dir ./out ./meeting.mp4       # 单个文件
+~/.video2md-cli/bin/video2md --out-dir ./out ./videos/           # 整个文件夹
+~/.video2md-cli/bin/video2md --out-dir ./out --plain ./talk.mp3  # 只要纯文本
 ```
 
-Configure private credentials on this machine:
+| 选项 | 作用 |
+|---|---|
+| `--out-dir DIR` | Markdown 输出目录 |
+| `--timestamps none\|sentence\|word` | 时间戳版文件的粒度，默认 `sentence`；`word` 附逐词时间与置信度；`none` 不产出该文件 |
+| `--plain` | 纯文本输出，去掉「说话人N」前缀 |
+| `--speaker-count N` | 预期说话人数，默认 2 |
+| `--speaker N=Name` | 指定说话人名字。`1=Name` 对应 DashScope 的 `speaker_id=0` |
+| `--vocab ID` | 热词表 ID，提升专有名词准确率 |
+| `--workers N` | 批量处理并发数，默认 2 |
+| `--skip-existing` | 跳过已有产出的文件 |
+
+支持的输入：
+
+- 视频 `.mp4` `.mov` `.m4v` `.3gp` `.mkv` `.webm`
+- 音频 `.wav` `.mp3` `.m4a` `.aac` `.ogg` `.flac`
+
+## 凭证
+
+本仓库不含任何密钥。每台机器在 `~/.video2md-cli.env` 里配置：
 
 ```bash
-./scripts/setup-secrets.sh
+export DASHSCOPE_API_KEY=sk-xxx     # 唯一必填
 ```
 
-The installer writes:
-
-- CLI binary: `~/.video2md-cli/bin/mp4-md`
-- env-loading wrapper: `~/.video2md-cli/bin/video2md`
-- optional Codex skill: `~/.codex/skills/video2md-cli`
-- private env file: `~/.video2md-cli.env`
-
-The env file is created with `0600` permissions and is never committed to Git.
-
-## Install On Windows
-
-From PowerShell:
-
-```powershell
-git clone https://github.com/wangjialiang678/video2md-cli.git
-cd video2md-cli
-powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1
-```
-
-Configure private credentials on this machine:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup-secrets.ps1
-```
-
-You can also edit the generated private env file manually with `notepad $env:USERPROFILE\.video2md-cli.env`.
-
-The Windows installer writes:
-
-- CLI binary: `%USERPROFILE%\.video2md-cli\bin\mp4-md.exe`
-- env-loading wrapper: `%USERPROFILE%\.video2md-cli\bin\video2md.ps1`
-- optional Codex skill: `%USERPROFILE%\.codex\skills\video2md-cli`
-- private env file: `%USERPROFILE%\.video2md-cli.env`
-
-Windows still requires `ffmpeg.exe` in `PATH` or `MP4MD_FFMPEG` pointing to `ffmpeg.exe`.
-
-## API Keys And OSS Credentials
-
-Do not put secrets in this repository.
-
-Each user needs a local env file at `~/.video2md-cli.env`:
+**可选**：大批量/高并发场景想改用自建 OSS 托管音频，把下面四项填全即可自动切换回 OSS 通道
+（缺一项则仍走 DashScope 临时空间）：
 
 ```bash
-export DASHSCOPE_API_KEY=your_dashscope_api_key
-export OSS_ACCESS_KEY_ID=your_aliyun_oss_access_key_id
-export OSS_ACCESS_KEY_SECRET=your_aliyun_oss_access_key_secret
-export OSS_BUCKET=your_oss_bucket
+export OSS_ACCESS_KEY_ID=xxx
+export OSS_ACCESS_KEY_SECRET=xxx
+export OSS_BUCKET=xxx
 export OSS_ENDPOINT=oss-cn-shanghai.aliyuncs.com
-export OSS_OBJECT_KEY_PREFIX=asr-temp/video2md/
-export OSS_READ_URL_TTL=2h
 ```
 
-Recommended way to share credentials with a colleague:
+分发给同事时，只发 `DASHSCOPE_API_KEY` 就够了——它可以在百炼后台随时禁用重建，
+不像阿里云 AccessKey 一旦泄露牵连整个账号。不要把密钥发到 GitHub、公开频道或截图里。
 
-1. Create a separate DashScope API key and Aliyun RAM user for that colleague.
-2. Give the RAM user only the OSS bucket permissions needed for upload, signed read URL, and delete under `asr-temp/video2md/`.
-3. Send the env values through a password manager, encrypted note, or another private channel.
-4. Ask the colleague to run `./scripts/setup-secrets.sh` on Mac, or edit `%USERPROFILE%\.video2md-cli.env` on Windows.
+## 发布 skill 到 SkillHub
 
-Avoid sending credentials in GitHub, Slack public channels, email threads, or screenshots.
-
-## CLI Usage
-
-Put flags before input paths:
+改完代码后一条命令重新发布（构建三平台二进制 → 打包 → 上传）：
 
 ```bash
-~/.video2md-cli/bin/video2md --out-dir ./out --speaker-count 2 ./meeting.mp4
-~/.video2md-cli/bin/video2md --out-dir ./out ./meeting.wav
-~/.video2md-cli/bin/video2md --out-dir ./out --speaker 1=Alice --speaker 2=Bob ./meeting.mp4
+./scripts/pack-skill.sh                 # 需要 HUB_URL / HUB_WRITE_TOKEN
+./scripts/pack-skill.sh --no-upload     # 只打包不上传
 ```
 
-On Windows PowerShell:
+记得先把 `skills/video2md/SKILL.md` 里的 `version:` 递增。
 
-```powershell
-& "$env:USERPROFILE\.video2md-cli\bin\video2md.ps1" --out-dir .\out --speaker-count 2 .\meeting.mp4
-```
-
-Useful flags:
-
-- `--out-dir DIR`: output directory for Markdown files
-- `--workers N`: concurrent file count
-- `--skip-existing`: skip files whose Markdown already exists
-- `--speaker N=Name`: optional speaker-name mapping. If omitted, output uses `说话人1`, `说话人2`, etc. `1=Name` maps DashScope `speaker_id=0`.
-- `--speaker-count N`: expected speaker count, default `2`
-- `--vocab ID` / `--vocabulary-id ID`: DashScope hotword vocabulary ID
-- `--oss-bucket`, `--oss-endpoint`, `--oss-prefix`: override OSS env config
-
-Supported inputs:
-
-- Video: `.mp4`, `.mov`, `.m4v`, `.3gp`, `.mkv`, `.webm`
-- Audio: `.wav`, `.mp3`, `.m4a`, `.aac`, `.ogg`, `.flac`
-
-## Use With Codex
-
-After running `./scripts/install-mac.sh`, restart Codex.
-
-Then ask the agent something like:
-
-> 转写 `~/Downloads/demo.mp4`，输出 Markdown。
-
-The installed skill tells the agent to use:
-
-```bash
-~/.codex/skills/video2md-cli/scripts/video2md.sh \
-  --out-dir /tmp/video2md-output \
-  /path/to/video-or-folder
-```
-
-You can also install only the skill from GitHub with Codex's built-in skill installer:
-
-```bash
-python ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
-  --repo wangjialiang678/video2md-cli \
-  --path skills/video2md-cli
-```
-
-Restart Codex after installing a skill.
-
-## Development
+## 开发
 
 ```bash
 go test ./...
 go build -o dist/local/mp4-md-darwin-arm64 ./cmd/mp4-md
-GOOS=windows GOARCH=amd64 go build -o dist/build/windows-amd64/mp4-md.exe ./cmd/mp4-md
 ```
 
-Generate local media fixtures when needed:
+需要本地测试素材时：
 
 ```bash
 ./scripts/create-fixtures.sh
 ```
 
-Build release archives:
+## License
 
-```bash
-./scripts/build-release.sh
-```
-
-## Notes
-
-- The CLI requires `ffmpeg`.
-- The normal path deletes OSS temporary objects after transcription.
-- DashScope speaker diarization returns speaker ids, not real names or gender.
+MIT

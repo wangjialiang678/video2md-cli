@@ -22,7 +22,21 @@ const (
 	defaultFunASRRecordedHTTPTimeout  = 30 * time.Second
 	recordedTranscriptionPath         = "/services/audio/asr/transcription"
 	recordedTaskPathPrefix            = "/tasks/"
+
+	// 让 DashScope 把 oss:// 临时文件地址解析成它自己能下载的预签名 URL。
+	// 只有走 DashScope 临时存储时才需要；自建 OSS 传的是 https 预签名 URL，不加此头。
+	ossResourceResolveHeader = "X-DashScope-OssResourceResolve"
+	ossURLScheme             = "oss://"
 )
+
+func hasOSSSchemeURL(fileURLs []string) bool {
+	for _, fileURL := range fileURLs {
+		if strings.HasPrefix(strings.TrimSpace(fileURL), ossURLScheme) {
+			return true
+		}
+	}
+	return false
+}
 
 type FunASRRecordedConfig struct {
 	APIKey         string
@@ -125,8 +139,13 @@ func (p *RecordedProvider) submitTask(ctx context.Context, model string, request
 		payload["parameters"] = parameters
 	}
 
+	extraHeaders := map[string]string{}
+	if hasOSSSchemeURL(fileURLs) {
+		extraHeaders[ossResourceResolveHeader] = "enable"
+	}
+
 	response := dashScopeTaskResponse{}
-	if err := p.callAPI(ctx, http.MethodPost, recordedTranscriptionPath, payload, true, &response); err != nil {
+	if err := p.callAPI(ctx, http.MethodPost, recordedTranscriptionPath, payload, true, extraHeaders, &response); err != nil {
 		return "", "", err
 	}
 	taskID := strings.TrimSpace(response.Output.TaskID)
@@ -138,7 +157,7 @@ func (p *RecordedProvider) submitTask(ctx context.Context, model string, request
 
 func (p *RecordedProvider) queryTask(ctx context.Context, taskID string) (taskSnapshot, error) {
 	response := dashScopeTaskResponse{}
-	if err := p.callAPI(ctx, http.MethodPost, recordedTaskPathPrefix+strings.TrimSpace(taskID), nil, false, &response); err != nil {
+	if err := p.callAPI(ctx, http.MethodPost, recordedTaskPathPrefix+strings.TrimSpace(taskID), nil, false, nil, &response); err != nil {
 		return taskSnapshot{}, err
 	}
 
@@ -308,7 +327,7 @@ func (p *RecordedProvider) fetchTranscriptFile(ctx context.Context, resultURL st
 	}, nil
 }
 
-func (p *RecordedProvider) callAPI(ctx context.Context, method string, path string, requestBody any, async bool, output *dashScopeTaskResponse) error {
+func (p *RecordedProvider) callAPI(ctx context.Context, method string, path string, requestBody any, async bool, extraHeaders map[string]string, output *dashScopeTaskResponse) error {
 	var bodyReader io.Reader
 	if requestBody != nil {
 		bodyBytes, err := json.Marshal(requestBody)
@@ -328,6 +347,11 @@ func (p *RecordedProvider) callAPI(ctx context.Context, method string, path stri
 		request.Header.Set("X-DashScope-Async", "enable")
 	}
 	for key, value := range p.config.RequestHeaders {
+		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
+			request.Header.Set(strings.TrimSpace(key), strings.TrimSpace(value))
+		}
+	}
+	for key, value := range extraHeaders {
 		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
 			request.Header.Set(strings.TrimSpace(key), strings.TrimSpace(value))
 		}

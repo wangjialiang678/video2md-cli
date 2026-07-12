@@ -132,3 +132,93 @@ func TestRender_DoesNotUseDirectProviderIDAsSpeakerNameFallback(t *testing.T) {
 		t.Fatalf("markdown missing one-based label for speaker 1: %q", got)
 	}
 }
+
+func TestRenderPlainTextOmitsSpeakerLabels(t *testing.T) {
+	speaker0, speaker1 := 0, 1
+	transcript := model.Transcript{Segments: []model.Segment{
+		{Text: "第一句", BeginMS: 0, EndMS: 1000, SpeakerID: &speaker0},
+		{Text: "第二句", BeginMS: 1000, EndMS: 2000, SpeakerID: &speaker1},
+	}}
+
+	withSpeakers := Render("a.mp4", transcript, Options{})
+	if !strings.Contains(withSpeakers, "**说话人1**: 第一句") {
+		t.Errorf("default output should keep speaker labels, got:\n%s", withSpeakers)
+	}
+
+	plain := Render("a.mp4", transcript, Options{PlainText: true})
+	if strings.Contains(plain, "说话人") || strings.Contains(plain, "**") {
+		t.Errorf("--plain output should not contain speaker labels, got:\n%s", plain)
+	}
+	for _, want := range []string{"第一句", "第二句"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("--plain output missing %q, got:\n%s", want, plain)
+		}
+	}
+	if strings.Contains(plain, ":00") || strings.Contains(plain, "1000") {
+		t.Errorf("output should never contain timestamps, got:\n%s", plain)
+	}
+}
+
+func TestRenderSentenceTimestamps(t *testing.T) {
+	speaker := 0
+	transcript := model.Transcript{Segments: []model.Segment{
+		{Text: "你好", BeginMS: 160, EndMS: 4480, SpeakerID: &speaker},
+	}}
+
+	out := Render("a.mp4", transcript, Options{Timestamps: TimestampsSentence})
+	if !strings.Contains(out, "`[00:00:00.160 → 00:00:04.480]`") {
+		t.Errorf("sentence timestamps missing, got:\n%s", out)
+	}
+	if !strings.Contains(out, "**说话人1**") {
+		t.Errorf("speaker label should survive alongside timestamps, got:\n%s", out)
+	}
+	if strings.Contains(out, "| 起 |") {
+		t.Errorf("sentence mode must not emit the word table, got:\n%s", out)
+	}
+}
+
+func TestRenderWordTimestamps(t *testing.T) {
+	speaker := 0
+	transcript := model.Transcript{Segments: []model.Segment{{
+		Text: "你好", BeginMS: 160, EndMS: 600, SpeakerID: &speaker,
+		Words: []model.Word{
+			{Text: "你好", Punctuation: "，", BeginMS: 160, EndMS: 600, Confidence: 0.98},
+		},
+	}}}
+
+	out := Render("a.mp4", transcript, Options{Timestamps: TimestampsWord})
+	for _, want := range []string{"| 起 | 止 | 词 | 置信度 |", "00:00:00.160", "你好，", "0.980"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("word table missing %q, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderTimestampsDefaultOff(t *testing.T) {
+	speaker := 0
+	transcript := model.Transcript{Segments: []model.Segment{
+		{Text: "你好", BeginMS: 160, EndMS: 4480, SpeakerID: &speaker},
+	}}
+	out := Render("a.mp4", transcript, Options{})
+	if strings.Contains(out, "00:00:") || strings.Contains(out, "→") {
+		t.Errorf("default Render must stay timestamp-free, got:\n%s", out)
+	}
+}
+
+func TestFormatTimestampCrossesHour(t *testing.T) {
+	cases := map[int]string{
+		0:        "00:00:00.000",
+		1500:     "00:00:01.500",
+		61_000:   "00:01:01.000",
+		3_723_45: "00:06:12.345",
+		7_200_00: "00:12:00.000",
+	}
+	for ms, want := range cases {
+		if got := formatTimestamp(ms); got != want {
+			t.Errorf("formatTimestamp(%d) = %s, want %s", ms, got, want)
+		}
+	}
+	if got := formatTimestamp(3_661_500); got != "01:01:01.500" {
+		t.Errorf("formatTimestamp(3661500) = %s, want 01:01:01.500", got)
+	}
+}

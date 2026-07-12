@@ -184,7 +184,34 @@ func convertSegments(input []asrbatch.Segment, offsetMs int) []model.Segment {
 			BeginMS:   segment.BeginMS + offsetMs,
 			EndMS:     segment.EndMS + offsetMs,
 			SpeakerID: speakerID,
+			Words:     convertWords(segment.Words, offsetMs),
 		})
+	}
+	return output
+}
+
+func convertWords(input []asrbatch.Word, offsetMs int) []model.Word {
+	if len(input) == 0 {
+		return nil
+	}
+	output := make([]model.Word, 0, len(input))
+	for _, word := range input {
+		text := strings.TrimSpace(word.Text)
+		if text == "" {
+			continue
+		}
+		converted := model.Word{
+			Text:    text,
+			BeginMS: word.BeginMS + offsetMs,
+			EndMS:   word.EndMS + offsetMs,
+		}
+		if word.Punctuation != nil {
+			converted.Punctuation = strings.TrimSpace(*word.Punctuation)
+		}
+		if word.Confidence != nil {
+			converted.Confidence = *word.Confidence
+		}
+		output = append(output, converted)
 	}
 	return output
 }

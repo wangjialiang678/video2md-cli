@@ -54,6 +54,15 @@ func OSSConfigFromEnv() OSSConfig {
 	}
 }
 
+// IsConfigured 判断用户是否显式配置了自建 OSS。四项缺一即视为未配置，
+// 此时调用方应回退到 DashScope 自带的临时文件空间（只需 DASHSCOPE_API_KEY）。
+func (c OSSConfig) IsConfigured() bool {
+	return strings.TrimSpace(c.AccessKeyID) != "" &&
+		strings.TrimSpace(c.AccessKeySecret) != "" &&
+		strings.TrimSpace(c.Bucket) != "" &&
+		strings.TrimSpace(c.Endpoint) != ""
+}
+
 func NewAliyunOSSUploader(config OSSConfig) (*AliyunOSSUploader, error) {
 	normalized, err := normalizeOSSConfig(config)
 	if err != nil {
