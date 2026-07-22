@@ -33,7 +33,7 @@
 装好 CLI 和 skill（见下面「从源码安装」），然后配好这两样：
 
 ```bash
-brew install ffmpeg                                       # 本地转码要用
+brew install ffmpeg                                       # 本地转码要用（Windows: winget install Gyan.FFmpeg）
 echo 'export DASHSCOPE_API_KEY=sk-你的key' > ~/.video2md-cli.env
 chmod 600 ~/.video2md-cli.env
 ```
@@ -43,8 +43,9 @@ API-KEY 申请，这是唯一需要的凭证。
 
 装好后直接跟 AI 说「把这个视频转成文字」即可，不用记命令。
 
-> 超脑团队成员：内部 SkillHub 上已有打包好的 `video2md` skill（含预编译二进制，
-> 免 clone 免构建），安装命令找 Michael 要。
+> 超脑团队成员：内部 SkillHub 上已有打包好的 `video2md` skill（含 macOS/Windows 预编译二进制，
+> **免 clone、免构建、无需装 Go**），安装命令找 Michael 要。Windows 上 agent 走 PowerShell 入口
+> `scripts/video2md.ps1`，参数与 `.sh` 相同；平台矩阵与排障见包内 `INSTALL.md`。
 
 ---
 
@@ -98,6 +99,7 @@ cd video2md-cli
 | `--vocab ID` | 热词表 ID，提升专有名词准确率 |
 | `--workers N` | 批量处理并发数，默认 2 |
 | `--skip-existing` | 跳过已有产出的文件 |
+| `--emit-json` | 额外产出结构化 `<名字>.transcript.json`（段/词级时间戳、置信度、说话人），供程序消费 |
 
 支持的输入：
 

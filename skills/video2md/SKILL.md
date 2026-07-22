@@ -3,7 +3,7 @@ name: video2md
 description: 把本地视频/音频转成文字稿（Markdown），支持说话人分离和时间戳。当用户要求把视频转文字、音频转文字、视频转字幕、提取视频里的对话内容、导出转写稿、把录音整理成文稿、区分谁在说话、要带时间戳的转写，或提到 video2md、mp4-md 时使用。支持单个文件或整个文件夹批量处理。关键词：视频转文字, 视频转字幕, 音频转文字, 转写, 转文稿, 提取字幕, 说话人分离, 时间戳, 会议记录转文字, 采访转文字, video2md, mp4-md。
 platform: universal
 category: content
-version: 1.2.0
+version: 1.4.0
 author: michael
 ---
 
@@ -23,6 +23,9 @@ author: michael
    ```
 
    Key 从哪来：① 找 Michael 要（团队共用）；② 自己去 https://bailian.console.aliyun.com/ 申请。
+
+> 平台：macOS(arm64/amd64) 与 Windows(amd64) 随包已带预编译二进制，**无需安装 Go**；
+> Linux/其它架构见 `INSTALL.md`。
 
 脚本会自己检查这两项，缺了会给出明确提示，**不要提前追问用户**。
 
@@ -46,6 +49,12 @@ scripts/video2md.sh --out-dir ./out /path/to/video.mp4
 scripts/video2md.sh --out-dir ./out /path/to/videos/
 ```
 
+**Windows**（agent 环境没有 bash 时）改用 PowerShell 入口，参数完全相同：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/video2md.ps1 --out-dir ./out C:\path\to\video.mp4
+```
+
 常用选项：
 
 | 选项 | 作用 |
@@ -57,6 +66,7 @@ scripts/video2md.sh --out-dir ./out /path/to/videos/
 | `--vocab vocab-xxx` | 热词表 ID，提升专有名词准确率 |
 | `--workers 4` | 批量时的并发数（默认 2） |
 | `--skip-existing` | 跳过已经转过的文件 |
+| `--emit-json` | 额外产出结构化 `<名字>.transcript.json`（段/词级时间戳、置信度、说话人），供程序按词级时间做剪辑映射；默认只出 md |
 
 ## 输出长什么样
 

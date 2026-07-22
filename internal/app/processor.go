@@ -14,6 +14,7 @@ import (
 	"mp4-md/internal/markdown"
 	"mp4-md/internal/media"
 	"mp4-md/internal/model"
+	"mp4-md/internal/transcriptjson"
 )
 
 type Extractor interface {
@@ -34,6 +35,9 @@ type Processor struct {
 	PlainText    bool
 	// Timestamps 控制额外产出的时间戳版文件；为空或 none 则不产出。
 	Timestamps markdown.Timestamps
+	// EmitJSON 为 true 时额外产出结构化转写 JSON（<stem>.transcript.json），
+	// 供下游工具消费词级时间戳，无需解析 Markdown。
+	EmitJSON bool
 }
 
 type Output struct {
@@ -41,6 +45,8 @@ type Output struct {
 	OutputPath string
 	// TimestampedPath 是带时间戳的伴生文件，未启用时为空。
 	TimestampedPath string
+	// TranscriptJSONPath 是结构化 JSON 伴生文件，未启用 EmitJSON 时为空。
+	TranscriptJSONPath string
 }
 
 func (p Processor) Process(ctx context.Context, inputs []string) ([]Output, error) {
@@ -209,13 +215,37 @@ func (p Processor) processOne(ctx context.Context, inputPath string) (Output, er
 			return Output{}, err
 		}
 	}
-	return Output{InputPath: inputPath, OutputPath: outputPath, TimestampedPath: timestampedPath}, nil
+
+	// 结构化 JSON：下游按词级时间戳做剪辑点映射，不解析 Markdown。
+	transcriptJSONPath := ""
+	if p.EmitJSON {
+		transcriptJSONPath = transcriptJSONOutputPath(outputPath)
+		payload, marshalErr := transcriptjson.Marshal(inputPath, transcript)
+		if marshalErr != nil {
+			return Output{}, marshalErr
+		}
+		if err := os.WriteFile(transcriptJSONPath, payload, 0o644); err != nil {
+			return Output{}, err
+		}
+	}
+	return Output{
+		InputPath:          inputPath,
+		OutputPath:         outputPath,
+		TimestampedPath:    timestampedPath,
+		TranscriptJSONPath: transcriptJSONPath,
+	}, nil
 }
 
 // timestampedOutputPath 把 out/a.md 变成 out/a.timestamped.md。
 func timestampedOutputPath(outputPath string) string {
 	ext := filepath.Ext(outputPath)
 	return strings.TrimSuffix(outputPath, ext) + ".timestamped" + ext
+}
+
+// transcriptJSONOutputPath 把 out/a.md 变成 out/a.transcript.json。
+func transcriptJSONOutputPath(outputPath string) string {
+	ext := filepath.Ext(outputPath)
+	return strings.TrimSuffix(outputPath, ext) + ".transcript.json"
 }
 
 func (p Processor) outputPath(inputPath string) string {

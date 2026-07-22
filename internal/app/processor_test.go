@@ -56,6 +56,66 @@ func TestProcessor_ProcessDirectory(t *testing.T) {
 	}
 }
 
+type fakeWordTranscriber struct{}
+
+func (fakeWordTranscriber) Transcribe(_ context.Context, inputPath string, _ media.Audio) (model.Transcript, error) {
+	return model.Transcript{
+		Text:   "你好世界",
+		TaskID: "task-xyz",
+		Segments: []model.Segment{
+			{
+				Text:    "你好世界",
+				BeginMS: 100,
+				EndMS:   900,
+				Words: []model.Word{
+					{Text: "你好", BeginMS: 100, EndMS: 500, Confidence: 0.9},
+					{Text: "世界", BeginMS: 500, EndMS: 900, Confidence: 0.8},
+				},
+			},
+		},
+	}, nil
+}
+
+func TestProcessor_EmitJSONWritesTranscriptFile(t *testing.T) {
+	outDir := t.TempDir()
+	inputDir := t.TempDir()
+	input := filepath.Join(inputDir, "clip.mp4")
+	if err := os.WriteFile(input, []byte("test"), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+
+	processor := Processor{
+		Extractor:   fakeExtractor{},
+		Transcriber: fakeWordTranscriber{},
+		OutDir:      outDir,
+		Workers:     1,
+		EmitJSON:    true,
+	}
+	results, err := processor.Process(context.Background(), []string{input})
+	if err != nil {
+		t.Fatalf("Process returned error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(results))
+	}
+	jsonPath := results[0].TranscriptJSONPath
+	if jsonPath == "" {
+		t.Fatalf("TranscriptJSONPath is empty")
+	}
+	if filepath.Base(jsonPath) != "clip.transcript.json" {
+		t.Fatalf("json basename = %s, want clip.transcript.json", filepath.Base(jsonPath))
+	}
+	data, readErr := os.ReadFile(jsonPath)
+	if readErr != nil {
+		t.Fatalf("read json %s: %v", jsonPath, readErr)
+	}
+	for _, want := range []string{"video2md/transcript@1", "\"begin_ms\": 100", "\"你好\"", "\"confidence\": 0.9"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("json missing %q:\n%s", want, string(data))
+		}
+	}
+}
+
 func TestExpandInputs_IncludesCommonAudioAndVideo(t *testing.T) {
 	paths, err := ExpandInputs([]string{createSupportedMediaFiles(t)})
 	if err != nil {

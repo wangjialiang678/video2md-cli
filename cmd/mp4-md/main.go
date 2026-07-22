@@ -43,6 +43,7 @@ func runTranscribe(args []string) error {
 	var skipExisting bool
 	var plain bool
 	var timestamps string
+	var emitJSON bool
 	var ossAccessKeyID string
 	var ossAccessKeySecret string
 	var ossBucket string
@@ -61,6 +62,7 @@ func runTranscribe(args []string) error {
 	fs.BoolVar(&skipExisting, "skip-existing", false, "skip files whose markdown output already exists")
 	fs.BoolVar(&plain, "plain", false, "output plain text paragraphs without speaker labels")
 	fs.StringVar(&timestamps, "timestamps", "sentence", "extra timestamped file: none | sentence | word")
+	fs.BoolVar(&emitJSON, "emit-json", false, "also write structured <stem>.transcript.json with word-level timestamps")
 	fs.StringVar(&ossAccessKeyID, "oss-access-key-id", "", "OSS access key id, defaults to OSS_ACCESS_KEY_ID or ALICLOUD_ACCESS_KEY_ID")
 	fs.StringVar(&ossAccessKeySecret, "oss-access-key-secret", "", "OSS access key secret, defaults to OSS_ACCESS_KEY_SECRET or ALICLOUD_ACCESS_KEY_SECRET")
 	fs.StringVar(&ossBucket, "oss-bucket", "", "OSS bucket, defaults to OSS_BUCKET")
@@ -124,6 +126,7 @@ func runTranscribe(args []string) error {
 		SpeakerNames: speakerNames.Map(),
 		PlainText:    plain,
 		Timestamps:   timestampMode,
+		EmitJSON:     emitJSON,
 	}
 
 	results, err := processor.Process(context.Background(), inputs)
@@ -131,6 +134,9 @@ func runTranscribe(args []string) error {
 		fmt.Printf("%s -> %s\n", item.InputPath, item.OutputPath)
 		if item.TimestampedPath != "" {
 			fmt.Printf("%s -> %s\n", item.InputPath, item.TimestampedPath)
+		}
+		if item.TranscriptJSONPath != "" {
+			fmt.Printf("%s -> %s\n", item.InputPath, item.TranscriptJSONPath)
 		}
 	}
 	return err
