@@ -34,7 +34,8 @@ pick_binary() {
 BIN="$(pick_binary)"
 if [[ -z "$BIN" ]]; then
   echo "找不到可用的 mp4-md 二进制（当前系统：$(uname -s)/$(uname -m)）。" >&2
-  echo "此 skill 包内置 macOS 与 Windows 版本；其它平台请从源码构建：" >&2
+  echo "此 skill 包已内置 macOS(arm64/amd64) 与 Windows(amd64) 二进制，这些平台无需装 Go。" >&2
+  echo "若你在 Linux 或其它架构，才需要用 Go 从源码构建：" >&2
   echo "  https://github.com/wangjialiang678/video2md-cli" >&2
   exit 127
 fi
@@ -67,6 +68,12 @@ Key 的两个来源：
   2. 自己申请：https://bailian.console.aliyun.com/ → 右上角 API-KEY
 EOF
   exit 1
+fi
+
+# macOS：随包二进制是 adhoc 签名、未经 Apple 公证；文件若带隔离属性会被 Gatekeeper 拦。
+# 首次运行前尽力剥离（失败无妨——PATH 里的系统二进制通常本就没有该属性）。
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  xattr -d com.apple.quarantine "$BIN" 2>/dev/null || true
 fi
 
 exec "$BIN" "$@"
