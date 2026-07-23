@@ -70,10 +70,17 @@ EOF
   exit 1
 fi
 
-# macOS：随包二进制是 adhoc 签名、未经 Apple 公证；文件若带隔离属性会被 Gatekeeper 拦。
-# 首次运行前尽力剥离（失败无妨——PATH 里的系统二进制通常本就没有该属性）。
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  xattr -d com.apple.quarantine "$BIN" 2>/dev/null || true
+# macOS：仅对本 skill 随包的二进制（adhoc 签名、未经 Apple 公证）剥离隔离属性，
+# 否则带 com.apple.quarantine 会被 Gatekeeper 拦。绝不改动 VIDEO2MD_CLI_BIN、
+# ~/.video2md-cli 或 PATH 上第三方二进制的 Gatekeeper 状态。
+if [[ "$(uname -s)" == "Darwin" && "$BIN" == "$SKILL_DIR/bin/"* ]]; then
+  if xattr -p com.apple.quarantine "$BIN" >/dev/null 2>&1; then
+    if ! xattr -d com.apple.quarantine "$BIN" 2>/dev/null; then
+      echo "无法移除随包二进制的隔离属性，Gatekeeper 可能拦截执行。请手动执行：" >&2
+      echo "  xattr -d com.apple.quarantine \"$BIN\"" >&2
+      exit 126
+    fi
+  fi
 fi
 
 exec "$BIN" "$@"

@@ -116,6 +116,90 @@ func TestProcessor_EmitJSONWritesTranscriptFile(t *testing.T) {
 	}
 }
 
+func TestProcessor_SkipExistingDoesNotSkipMissingJSON(t *testing.T) {
+	outDir := t.TempDir()
+	inputDir := t.TempDir()
+	input := filepath.Join(inputDir, "clip.mp4")
+	if err := os.WriteFile(input, []byte("test"), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	// 预置一个已存在的 .md，但没有 .transcript.json：模拟“先前不带 --emit-json 跑过”。
+	mdPath := filepath.Join(outDir, "clip.md")
+	if err := os.WriteFile(mdPath, []byte("stale markdown"), 0o644); err != nil {
+		t.Fatalf("write stale md: %v", err)
+	}
+
+	processor := Processor{
+		Extractor:    fakeExtractor{},
+		Transcriber:  fakeWordTranscriber{},
+		OutDir:       outDir,
+		Workers:      1,
+		SkipExisting: true,
+		EmitJSON:     true,
+	}
+	results, err := processor.Process(context.Background(), []string{input})
+	if err != nil {
+		t.Fatalf("Process returned error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results len = %d, want 1", len(results))
+	}
+
+	// 缺 JSON 时不应跳过：JSON 必须被补产出。
+	jsonPath := results[0].TranscriptJSONPath
+	if jsonPath == "" {
+		t.Fatalf("TranscriptJSONPath 为空：skip-existing 错误地跳过且从未产出 JSON")
+	}
+	if _, statErr := os.Stat(jsonPath); statErr != nil {
+		t.Fatalf("transcript json 未写出: %v", statErr)
+	}
+	// .md 应被重新渲染（不再是预置的 stale 内容）。
+	data, readErr := os.ReadFile(mdPath)
+	if readErr != nil {
+		t.Fatalf("read md: %v", readErr)
+	}
+	if strings.Contains(string(data), "stale markdown") {
+		t.Fatalf("markdown 未被重新生成，仍是旧内容")
+	}
+}
+
+func TestProcessor_SkipExistingSkipsWhenAllArtifactsExist(t *testing.T) {
+	outDir := t.TempDir()
+	inputDir := t.TempDir()
+	input := filepath.Join(inputDir, "clip.mp4")
+	if err := os.WriteFile(input, []byte("test"), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	// .md 与 .transcript.json 都已存在：应被跳过，且 Output 仍回填 JSON 路径、不重写文件。
+	mdPath := filepath.Join(outDir, "clip.md")
+	jsonPath := filepath.Join(outDir, "clip.transcript.json")
+	if err := os.WriteFile(mdPath, []byte("existing md"), 0o644); err != nil {
+		t.Fatalf("write md: %v", err)
+	}
+	if err := os.WriteFile(jsonPath, []byte("existing json"), 0o644); err != nil {
+		t.Fatalf("write json: %v", err)
+	}
+
+	processor := Processor{
+		Extractor:    fakeExtractor{},
+		Transcriber:  fakeWordTranscriber{},
+		OutDir:       outDir,
+		Workers:      1,
+		SkipExisting: true,
+		EmitJSON:     true,
+	}
+	results, err := processor.Process(context.Background(), []string{input})
+	if err != nil {
+		t.Fatalf("Process returned error: %v", err)
+	}
+	if results[0].TranscriptJSONPath == "" {
+		t.Fatalf("跳过时 Output 仍应回填已存在的 TranscriptJSONPath")
+	}
+	if data, _ := os.ReadFile(jsonPath); string(data) != "existing json" {
+		t.Fatalf("跳过时不应重写 json，实际: %q", string(data))
+	}
+}
+
 func TestExpandInputs_IncludesCommonAudioAndVideo(t *testing.T) {
 	paths, err := ExpandInputs([]string{createSupportedMediaFiles(t)})
 	if err != nil {

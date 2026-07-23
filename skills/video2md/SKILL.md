@@ -3,7 +3,7 @@ name: video2md
 description: 把本地视频/音频转成文字稿（Markdown），支持说话人分离和时间戳。当用户要求把视频转文字、音频转文字、视频转字幕、提取视频里的对话内容、导出转写稿、把录音整理成文稿、区分谁在说话、要带时间戳的转写，或提到 video2md、mp4-md 时使用。支持单个文件或整个文件夹批量处理。关键词：视频转文字, 视频转字幕, 音频转文字, 转写, 转文稿, 提取字幕, 说话人分离, 时间戳, 会议记录转文字, 采访转文字, video2md, mp4-md。
 platform: universal
 category: content
-version: 1.4.0
+version: 1.4.1
 author: michael
 ---
 

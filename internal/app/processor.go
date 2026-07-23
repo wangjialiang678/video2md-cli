@@ -174,10 +174,25 @@ func ExpandInputs(inputs []string) ([]string, error) {
 
 func (p Processor) processOne(ctx context.Context, inputPath string) (Output, error) {
 	outputPath := p.outputPath(inputPath)
-	if p.SkipExisting {
-		if _, statErr := os.Stat(outputPath); statErr == nil {
-			return Output{InputPath: inputPath, OutputPath: outputPath}, nil
-		}
+
+	// 预先算出本次会产出的所有伴生文件路径，供 skip-existing 判断与最终返回复用。
+	timestampedPath := ""
+	if p.Timestamps != markdown.TimestampsNone && p.Timestamps != "" {
+		timestampedPath = timestampedOutputPath(outputPath)
+	}
+	transcriptJSONPath := ""
+	if p.EmitJSON {
+		transcriptJSONPath = transcriptJSONOutputPath(outputPath)
+	}
+
+	// 只有当所有请求的产物都已存在时才跳过；否则会漏产（例如已有 .md 但缺 .transcript.json）。
+	if p.SkipExisting && allPathsExist(outputPath, timestampedPath, transcriptJSONPath) {
+		return Output{
+			InputPath:          inputPath,
+			OutputPath:         outputPath,
+			TimestampedPath:    timestampedPath,
+			TranscriptJSONPath: transcriptJSONPath,
+		}, nil
 	}
 
 	audio, err := p.Extractor.Extract(ctx, inputPath)
@@ -204,9 +219,7 @@ func (p Processor) processOne(ctx context.Context, inputPath string) (Output, er
 	}
 
 	// 正文永远是干净文本；时间戳版另存一份，方便按需定位原视频。
-	timestampedPath := ""
-	if p.Timestamps != markdown.TimestampsNone && p.Timestamps != "" {
-		timestampedPath = timestampedOutputPath(outputPath)
+	if timestampedPath != "" {
 		if err := os.WriteFile(timestampedPath, []byte(markdown.Render(inputPath, transcript, markdown.Options{
 			SpeakerNames: p.SpeakerNames,
 			PlainText:    p.PlainText,
@@ -217,9 +230,7 @@ func (p Processor) processOne(ctx context.Context, inputPath string) (Output, er
 	}
 
 	// 结构化 JSON：下游按词级时间戳做剪辑点映射，不解析 Markdown。
-	transcriptJSONPath := ""
-	if p.EmitJSON {
-		transcriptJSONPath = transcriptJSONOutputPath(outputPath)
+	if transcriptJSONPath != "" {
 		payload, marshalErr := transcriptjson.Marshal(inputPath, transcript)
 		if marshalErr != nil {
 			return Output{}, marshalErr
@@ -234,6 +245,19 @@ func (p Processor) processOne(ctx context.Context, inputPath string) (Output, er
 		TimestampedPath:    timestampedPath,
 		TranscriptJSONPath: transcriptJSONPath,
 	}, nil
+}
+
+// allPathsExist 报告所有非空路径是否都已存在；空路径表示该产物本次不产出，跳过检查。
+func allPathsExist(paths ...string) bool {
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // timestampedOutputPath 把 out/a.md 变成 out/a.timestamped.md。
